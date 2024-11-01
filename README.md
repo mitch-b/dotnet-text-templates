@@ -1,20 +1,21 @@
-# Basic .NET 8 Console App
+# .NET Reflection and Expression Evaluation
 
-Yes, there are much less verbose starting projects. No, you do not need all this stuff to play with .NET.
+This project demonstrates a string expression and will replace object values into the expression before evaluating. 
 
-Quickly clone this repository to get a .NET 8 console app which:
+## Example
 
-1. Has dependency injection usage examples ([DemoService](./ConsoleApp/Services/DemoService.cs))
-1. Docker container support
-1. Has GitHub actions to build a container
-1. Example getting AccessToken from Azure AD following client credentials flow (for daemons)
-    * Built-in example assumes Azure App Registration has `Microsoft Graph : User.Read.All` application permission granted.
-1. devcontainer configured - only need container runtime, not dotnet locally installed (TODO)
+```csharp
+var objA = new SampleModel { Prop1 = "hi2", Prop2 = 3 };
+var objB = new SampleModel { Prop1 = "hi2", Prop2 = 4 };
 
-## Build & Run Docker container
+var expression = "a.Prop1 == \"hi2\" && b.Prop2 >= 3";
 
-```bash
-cd BasicConsole/
-docker build -t dotnet-basic-console:latest .
-docker run --rm dotnet-basic-console:latest
+var result = await _demoService.EvaluateExpression<bool>(
+    expression,
+    (objA, "a"),
+    (objB, "b"));
+
+// true
 ```
+
+The reflection/script evaluation is in [DemoService](./ConsoleApp/Services/DemoService.cs#L28).

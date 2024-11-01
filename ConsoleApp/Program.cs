@@ -14,13 +14,7 @@ var builder = Host.CreateDefaultBuilder(args)
     {
         services.AddHostedService<WorkerService>();
         services.AddOptions<ConsoleAppSettings>().BindConfiguration(nameof(ConsoleAppSettings));
-        services.AddOptions<ConfidentialClientApplicationOptions>().BindConfiguration("EntraConfig");
-        services.AddScoped<IClientCredentialService, ClientCredentialService>();
         services.AddScoped<IDemoService, DemoService>();
-        services.AddHttpClient("GraphApi", httpClient =>
-        {
-            httpClient.BaseAddress = new Uri("https://graph.microsoft.com/");
-        });
     })
     .ConfigureAppConfiguration((hostContext, configBuilder) =>
     {

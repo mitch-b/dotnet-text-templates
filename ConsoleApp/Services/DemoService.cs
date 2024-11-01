@@ -3,45 +3,88 @@ using System.Text.Json.Nodes;
 using ConsoleApp.Models.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.CodeAnalysis.CSharp.Scripting;
+using Microsoft.CodeAnalysis.Scripting;
+using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Collections.Concurrent;
 
 namespace ConsoleApp.Services;
 
 internal interface IDemoService
 {
-    void WriteWelcomeMessage();
-    Task<string> MakeGraphApiCall();
+    Task<T> EvaluateExpression<T>(string expression, params (object obj, string objName)[] objects);
 }
 
 internal class DemoService(ILogger<DemoService> logger,
-        IClientCredentialService clientCredentialService,
-        IOptions<ConsoleAppSettings> consoleAppSettings,
-        IHttpClientFactory httpClientFactory) : IDemoService
+        IOptions<ConsoleAppSettings> consoleAppSettings) : IDemoService
 {
     private readonly ILogger<DemoService> _logger = logger;
-    private readonly IClientCredentialService _clientCredentialService = clientCredentialService;
     private readonly IOptions<ConsoleAppSettings> _consoleAppSettings = consoleAppSettings;
-    private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
+    private static readonly ScriptOptions _scriptOptions = ScriptOptions.Default;
+    private static readonly ConcurrentDictionary<string, Script<object>> _scriptCache = new();
+    private static readonly ConcurrentDictionary<Type, PropertyInfo[]> _propertyCache = new();
 
-    public async Task<string> MakeGraphApiCall()
+    public async Task<T> EvaluateExpression<T>(string expression, params (object obj, string objName)[] objects)
     {
-        var accessToken = await _clientCredentialService.GetAccessToken(
-            ["https://graph.microsoft.com/.default"]);
-
-        var httpClient = _httpClientFactory.CreateClient("GraphApi");
-        httpClient.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", accessToken);
-
-        var response = await httpClient.GetAsync("/v1.0/users");
-
-        JsonNode? result = null;
-        if (response.IsSuccessStatusCode)
+        var replacedExpression = expression;
+        try
         {
-            var json = await response.Content.ReadAsStringAsync();
-            result = JsonNode.Parse(json);
+            foreach (var (obj, objName) in objects)
+            {
+                replacedExpression = ReplaceNameofReferences(replacedExpression, obj, objName);
+            }
+
+            _logger.LogDebug("Evaluating expression: '{replacedExpression}' from '{expression}'", replacedExpression, expression);
+            var script = _scriptCache.GetOrAdd(replacedExpression, expr => CSharpScript.Create<object>(expr, _scriptOptions));
+            var result = await script.RunAsync();
+            return (T)result.ReturnValue;
         }
-        return result is null
-            ? ""
-            : result.ToJsonString();
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error evaluating expression: {replacedExpression}", replacedExpression);
+            throw;
+        }
+    }
+
+    private string ReplaceNameofReferences(string expression, object obj, string objName)
+    {
+        if (obj == null) return expression;
+
+        var type = obj.GetType();
+        var properties = _propertyCache.GetOrAdd(type, t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance));
+
+        foreach (var property in properties)
+        {
+            var propertyName = property.Name;
+            var propertyValue = property.GetValue(obj);
+
+            if (propertyValue != null)
+            {
+                string replacementValue;
+
+                if (propertyValue is string)
+                {
+                    replacementValue = $"\"{propertyValue}\"";
+                }
+                else if (propertyValue is DateTime dateTimeValue)
+                {
+                    replacementValue = $"DateTime.Parse(\"{dateTimeValue:O}\")"; // ISO 8601 format
+                }
+                else if (propertyValue is bool boolValue)
+                {
+                    replacementValue = boolValue.ToString().ToLower();
+                }
+                else
+                {
+                    replacementValue = propertyValue.ToString();
+                }
+
+                expression = Regex.Replace(expression, $@"\b{objName}\.{propertyName}\b", replacementValue);
+            }
+        }
+
+        return expression;
     }
 
     public void WriteWelcomeMessage()

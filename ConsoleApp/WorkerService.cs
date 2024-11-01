@@ -1,4 +1,6 @@
-﻿using ConsoleApp.Models.Configuration;
+﻿using System.Text.Json;
+using ConsoleApp.Models;
+using ConsoleApp.Models.Configuration;
 using ConsoleApp.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -18,21 +20,30 @@ internal class WorkerService(
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Worker started");
+        var oldObj = new SampleModel { Prop1 = "hi2", Prop2 = 3 };
+        var newObj = new SampleModel { Prop1 = "hi2", Prop2 = 4 };
         
-        if (_options.Value.EntraEnabled == true)
-        {
-            var response = await _demoService.MakeGraphApiCall();
-            if (!string.IsNullOrWhiteSpace(response))
-            {
-                Console.WriteLine(response);
-            }
-        }
+        Console.WriteLine("object 'a': {0}", JsonSerializer.Serialize(oldObj));
+        Console.WriteLine("object 'b': {0}", JsonSerializer.Serialize(newObj));
 
-        while (true)
+        do
         {
-            _demoService.WriteWelcomeMessage();
-            await Task.Delay(3000, cancellationToken);
-        }
+
+            Console.WriteLine("Enter expression to evaluate :");
+            var expression = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(expression))
+            {
+                _logger.LogInformation("Exiting worker");
+                break;
+            }
+            
+            var expressionResult = await _demoService.EvaluateExpression<bool>(
+                expression,
+                (oldObj, "a"),
+                (newObj, "b"));
+            Console.WriteLine("Result: {0}", expressionResult);
+            // await Task.Delay(3000, cancellationToken);
+        } while (!cancellationToken.IsCancellationRequested);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
